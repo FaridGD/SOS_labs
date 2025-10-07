@@ -8,6 +8,9 @@
 #include <pwd.h>
 #include <grp.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <strings.h>
+#include <sys/types.h>
 
 #define COLOR_RESET "\033[0m"
 #define COLOR_GREEN "\033[32m"
@@ -143,7 +146,7 @@ void hpath(const char* path, Fl flags)
     
     	qsort(entries, count, sizeof(struct dirent*), compare_names);
 	
-	if (flags.l && total_blocks > 0)
+	if (flags.l)
 	{
 		printf("total %ld\n", total_blocks / 2);
 	}
