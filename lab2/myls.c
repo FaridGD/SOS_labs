@@ -7,6 +7,33 @@
 #include <time.h>
 #include <pwd.h>
 #include <grp.h>
+#include <stdlib.h>
+
+#define COLOR_RESET "\033[0m"
+#define COLOR_GREEN "\033[32m"
+#define COLOR_BLUE "\033[34m"
+#define COLOR_CYAN "\033[36m"
+
+int compare_names(const void *a, const void *b)
+{
+    const struct dirent *entryA = (const struct dirent *)a;
+    const struct dirent *entryB = (const struct dirent *)b;
+    return strcasecmp(entryA->d_name, entryB->d_name);
+}
+
+const char* get_file_color(mode_t mode)
+{
+    if (S_ISDIR(mode)) return COLOR_BLUE;
+    if (S_ISLNK(mode)) return COLOR_CYAN;
+    if (mode & S_IXUSR) return COLOR_GREEN;
+    return COLOR_RESET;
+}
+
+void print_colored_name(const char* name, mode_t mode)
+{
+    const char* color = get_file_color(mode);
+    printf("%s%s%s", color, name, COLOR_RESET);
+}
 
 typedef struct
 {
@@ -27,10 +54,10 @@ void print_permissions(mode_t mode) {
     printf((mode & S_IXOTH) ? "x" : "-");
 }
 
-void print_file_info(const char *filename) {
+void print_file_info(const char *filename, const char *display_name) {
     struct stat file_stat;
 
-    if (stat(filename, &file_stat) == -1) {
+    if (lstat(filename, &file_stat) == -1) {
         perror("stat");
         return;
     }
@@ -41,7 +68,7 @@ void print_file_info(const char *filename) {
 
     struct passwd *pw = getpwuid(file_stat.st_uid);
     struct group *gr = getgrgid(file_stat.st_gid);
-    printf(" %s %s", pw->pw_name, gr->gr_name);
+    printf(" %s %s", pw ? pw->pw_name : "?", gr ? gr->gr_name : "?");
 
     printf(" %ld", file_stat.st_size);
 
@@ -49,7 +76,9 @@ void print_file_info(const char *filename) {
     struct tm *timeinfo = localtime(&file_stat.st_mtime);
     strftime(time_buf, sizeof(time_buf), "%b %d %H:%M", timeinfo);
     printf(" %s", time_buf);
-    printf(" %s\n", filename);
+    printf(" ");
+    print_colored_name(display_name, file_stat.st_mode);
+    printf("\n");
 }
 
 bool is_directory(const char* path)
@@ -79,40 +108,76 @@ void hpath(const char* path, Fl flags)
 	}
 
 	struct dirent* entry;
-	while ((entry = readdir(dir)) != NULL)
-	{
-		if (!flags.a && entry->d_name[0] == '.')
-			continue;
+    
+    
+	struct dirent **entries = NULL;
+	int count = 0;
+	int capacity = 100;
+    
+	entries = malloc(capacity * sizeof(struct dirent*));
+    
+    	while ((entry = readdir(dir)) != NULL)
+    	{
+        	if (!flags.a && entry->d_name[0] == '.')
+            		continue;
 
-		char full_path[1024];
+        	char full_path[1024];
+        	snprintf(full_path, sizeof(full_path), "%s/%s", path, entry->d_name);
+        	struct stat file_stat;
 
-		snprintf(full_path, sizeof(full_path), "%s/%s", path, entry->d_name);
-		struct stat file_stat;
-
-		if (lstat(full_path, &file_stat) == 0)
+        	if (lstat(full_path, &file_stat) == 0)
+        	{
+            		total_blocks += file_stat.st_blocks;
+        	}
+        
+        	if (count >= capacity)
 		{
-			total_blocks += file_stat.st_blocks;
-		}
+            	capacity *= 2;
+            	entries = realloc(entries, capacity * sizeof(struct dirent*));
+        	}
+        
+        	entries[count] = malloc(sizeof(struct dirent));
+        	memcpy(entries[count], entry, sizeof(struct dirent));
+        	count++;
 	}
+    
+    	qsort(entries, count, sizeof(struct dirent*), compare_names);
+	
 	if (flags.l && total_blocks > 0)
 	{
 		printf("total %ld\n", total_blocks / 2);
 	}
 	rewinddir(dir);
-	while ((entry = readdir(dir)) != NULL)
-	{	
-		if (!flags.a && entry->d_name[0] == '.')
-		{
-			continue;
-		}
+	for (int i = 0; i < count; i++)
+	{
 		if (flags.l)
 		{
-			print_file_info(entry->d_name);
+			char full_path[1024];
+			snprintf(full_path, sizeof(full_path), "%s/%s", path, entries[i]->d_name);
+			print_file_info(full_path, entries[i]->d_name);
 		}
 		else
 		{
-			printf("%s\n", entry->d_name);
+			char full_path[1024];
+			snprintf(full_path, sizeof(full_path), "%s/%s", path, entries[i]->d_name);
+
+			struct stat file_stat;
+			if (lstat(full_path, &file_stat) == 0)
+			{
+				print_colored_name(entries[i]->d_name, file_stat.st_mode);
+				printf("\n");
+			}
+			else
+			{
+				printf("%s ", entries[i]->d_name);
+			}
 		}
+		free(entries[i]);
+	}
+	free(entries);
+	if (!flags.l)
+	{
+		printf("\n");
 	}
 	closedir(dir);
 }
