@@ -6,7 +6,8 @@ all: $(TARGETS)
 
 myls: myls.c
 	$(CC) $(CFLAGS) -o myls myls.c
+
 clean:
 	rm -f $(TARGETS)
 
-.PHONY: all clean
+.PHONY: a
