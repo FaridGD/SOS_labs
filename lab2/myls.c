@@ -19,9 +19,9 @@
 
 int compare_names(const void *a, const void *b)
 {
-    const struct dirent *entryA = (const struct dirent *)a;
-    const struct dirent *entryB = (const struct dirent *)b;
-    return strcasecmp(entryA->d_name, entryB->d_name);
+    const char *nameA = *(const char **)a;
+    const char *nameB = *(const char **)b;
+    return strcasecmp(nameA, nameB);
 }
 
 const char* get_file_color(mode_t mode)
@@ -44,7 +44,8 @@ typedef struct
 	bool l;
 } Fl;
 
-void print_permissions(mode_t mode) {
+void print_permissions(mode_t mode)
+{
     printf((S_ISDIR(mode)) ? "d" : "-");
     printf((mode & S_IRUSR) ? "r" : "-");
     printf((mode & S_IWUSR) ? "w" : "-");
@@ -57,11 +58,13 @@ void print_permissions(mode_t mode) {
     printf((mode & S_IXOTH) ? "x" : "-");
 }
 
-void print_file_info(const char *filename, const char *display_name) {
+void print_file_info(const char *filename, const char *display_name)
+{
     struct stat file_stat;
 
-    if (lstat(filename, &file_stat) == -1) {
-        perror("stat");
+    if (stat(filename, &file_stat) != 0)
+    {
+        perror("lstat");
         return;
     }
 
@@ -94,6 +97,17 @@ bool is_directory(const char* path)
 	return S_ISDIR(st.st_mode);
 }
 
+char* my_strdup(const char* str)
+{
+    size_t len = strlen(str) + 1;
+    char* new_str = malloc(len);
+    if (new_str)
+    {
+        memcpy(new_str, str, len);
+    }
+    return new_str;
+}
+
 void hpath(const char* path, Fl flags)
 {
 	long total_blocks = 0;
@@ -106,18 +120,17 @@ void hpath(const char* path, Fl flags)
 	DIR *dir = opendir(path);
 	if (!dir)
 	{
-		fprintf(stderr, "Не удалось открыть директоиию\n");
+		fprintf(stderr, "Не удалось открыть директорию\n");
 		return;
 	}
 
 	struct dirent* entry;
     
-    
-	struct dirent **entries = NULL;
+	char **filenames = NULL;
 	int count = 0;
 	int capacity = 100;
     
-	entries = malloc(capacity * sizeof(struct dirent*));
+	filenames = malloc(capacity * sizeof(char*));
     
     	while ((entry = readdir(dir)) != NULL)
     	{
@@ -128,61 +141,54 @@ void hpath(const char* path, Fl flags)
         	snprintf(full_path, sizeof(full_path), "%s/%s", path, entry->d_name);
         	struct stat file_stat;
 
-        	if (lstat(full_path, &file_stat) == 0)
+        	if (stat(full_path, &file_stat) == 0)
         	{
             		total_blocks += file_stat.st_blocks;
         	}
         
         	if (count >= capacity)
 		{
-            	capacity *= 2;
-            	entries = realloc(entries, capacity * sizeof(struct dirent*));
+            		capacity *= 2;
+            		filenames = realloc(filenames, capacity * sizeof(char*));
         	}
         
-        	entries[count] = malloc(sizeof(struct dirent));
-        	memcpy(entries[count], entry, sizeof(struct dirent));
+        	filenames[count] = my_strdup(entry->d_name);
         	count++;
 	}
     
-    	qsort(entries, count, sizeof(struct dirent*), compare_names);
+    	closedir(dir);
+    
+    	qsort(filenames, count, sizeof(char*), compare_names);
 	
 	if (flags.l)
 	{
 		printf("total %ld\n", total_blocks / 2);
 	}
-	rewinddir(dir);
+	
 	for (int i = 0; i < count; i++)
 	{
+		char full_path[1024];
+		snprintf(full_path, sizeof(full_path), "%s/%s", path, filenames[i]);
+		
+		struct stat file_stat;
+		if (stat(full_path, &file_stat) != 0)
+		{
+			file_stat.st_mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
+		}
+
 		if (flags.l)
 		{
-			char full_path[1024];
-			snprintf(full_path, sizeof(full_path), "%s/%s", path, entries[i]->d_name);
-			print_file_info(full_path, entries[i]->d_name);
+			print_file_info(full_path, filenames[i]);
 		}
 		else
 		{
-			char full_path[1024];
-			snprintf(full_path, sizeof(full_path), "%s/%s", path, entries[i]->d_name);
-
-			struct stat file_stat;
-			if (lstat(full_path, &file_stat) == 0)
-			{
-				print_colored_name(entries[i]->d_name, file_stat.st_mode);
-				printf("\n");
-			}
-			else
-			{
-				printf("%s ", entries[i]->d_name);
-			}
+			print_colored_name(filenames[i], file_stat.st_mode);
+			printf("\n");
 		}
-		free(entries[i]);
+		
+		free(filenames[i]);
 	}
-	free(entries);
-	if (!flags.l)
-	{
-		printf("\n");
-	}
-	closedir(dir);
+	free(filenames);
 }
 
 
