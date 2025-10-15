@@ -11,11 +11,12 @@
 #include <unistd.h>
 #include <strings.h>
 #include <sys/types.h>
+#include <limits.h>
 
 #define COLOR_RESET "\033[0m"
-#define COLOR_GREEN "\033[32m"
-#define COLOR_BLUE "\033[34m"
-#define COLOR_CYAN "\033[36m"
+#define COLOR_GREEN "\033[1;32m"
+#define COLOR_BLUE "\033[1;34m"
+#define COLOR_CYAN "\033[1;36m"
 
 int compare_names(const void *a, const void *b)
 {
@@ -46,7 +47,8 @@ typedef struct
 
 void print_permissions(mode_t mode)
 {
-	printf((S_ISDIR(mode)) ? "d" : "-");
+	printf((S_ISDIR(mode)) ? "d" :
+	       (S_ISLNK(mode)) ? "l" : "-");
 	printf((mode & S_IRUSR) ? "r" : "-");
 	printf((mode & S_IWUSR) ? "w" : "-");
 	printf((mode & S_IXUSR) ? "x" : "-");
@@ -61,23 +63,38 @@ void print_permissions(mode_t mode)
 void print_file_info(const char *filename, const char *display_name)
 {
 	struct stat file_stat;
-	if (stat(filename, &file_stat) != 0)
+	if (lstat(filename, &file_stat) != 0)
 	{
-		perror("lstat");
+		perror(filename);
 		return;
 	}
+
 	print_permissions(file_stat.st_mode);
-	printf(" %lu", file_stat.st_nlink);
+	printf(" %lu", (unsigned long)file_stat.st_nlink);
+
 	struct passwd *pw = getpwuid(file_stat.st_uid);
 	struct group *gr = getgrgid(file_stat.st_gid);
 	printf(" %s %s", pw ? pw->pw_name : "?", gr ? gr->gr_name : "?");
-	printf(" %ld", file_stat.st_size);
+
+	printf(" %6ld", (long)file_stat.st_size);
+
 	char time_buf[20];
 	struct tm *timeinfo = localtime(&file_stat.st_mtime);
 	strftime(time_buf, sizeof(time_buf), "%b %d %H:%M", timeinfo);
-	printf(" %s", time_buf);
-	printf(" ");
+	printf(" %s ", time_buf);
+
 	print_colored_name(display_name, file_stat.st_mode);
+
+	if (S_ISLNK(file_stat.st_mode))
+	{
+		char link_target[4096];
+		ssize_t len = readlink(filename, link_target, sizeof(link_target) - 1);
+		if (len != -1)
+		{
+			link_target[len] = '\0';
+			printf(" -> %s", link_target);
+		}
+	}
 	printf("\n");
 }
 
@@ -85,9 +102,7 @@ bool is_directory(const char* path)
 {
 	struct stat st;
 	if (stat(path, &st) != 0)
-	{
 		return false;
-	}
 	return S_ISDIR(st.st_mode);
 }
 
@@ -96,125 +111,125 @@ char* my_strdup(const char* str)
 	size_t len = strlen(str) + 1;
 	char* new_str = malloc(len);
 	if (new_str)
-	{
 		memcpy(new_str, str, len);
-	}
 	return new_str;
 }
 
 void hpath(const char* path, Fl flags)
 {
-	long total_blocks = 0;
 	if (!is_directory(path))
 	{
-		fprintf(stderr, "Ошибка: директория не найдена\n");
+		if (flags.l)
+			print_file_info(path, path);
+		else
+		{
+			struct stat st;
+			if (lstat(path, &st) == 0)
+				print_colored_name(path, st.st_mode);
+			else
+				printf("%s", path);
+			printf("\n");
+		}
 		return;
 	}
-	
+
 	DIR *dir = opendir(path);
 	if (!dir)
 	{
-		fprintf(stderr, "Не удалось открыть директорию\n");
+		perror(path);
 		return;
 	}
 
 	struct dirent* entry;
-    
 	char **filenames = NULL;
 	int count = 0;
 	int capacity = 100;
-    
 	filenames = malloc(capacity * sizeof(char*));
-    
-    	while ((entry = readdir(dir)) != NULL)
-    	{
-        	if (!flags.a && entry->d_name[0] == '.')
-            		continue;
 
-        	char full_path[1024];
-        	snprintf(full_path, sizeof(full_path), "%s/%s", path, entry->d_name);
-        	struct stat file_stat;
+	long total_blocks = 0;
 
-        	if (stat(full_path, &file_stat) == 0)
-        	{
-            		total_blocks += file_stat.st_blocks;
-        	}
-        
-        	if (count >= capacity)
-		{
-            		capacity *= 2;
-            		filenames = realloc(filenames, capacity * sizeof(char*));
-        	}
-        
-        	filenames[count] = my_strdup(entry->d_name);
-        	count++;
-	}
-    
-    	closedir(dir);
-    
-    	qsort(filenames, count, sizeof(char*), compare_names);
-	
-	if (flags.l)
+	while ((entry = readdir(dir)) != NULL)
 	{
-		printf("total %ld\n", total_blocks / 2);
+		if (!flags.a && entry->d_name[0] == '.')
+			continue;
+
+		char full_path[4096];
+		snprintf(full_path, sizeof(full_path), "%s/%s", path, entry->d_name);
+
+		struct stat file_stat;
+		if (lstat(full_path, &file_stat) == 0)
+			total_blocks += file_stat.st_blocks;
+
+		if (count >= capacity)
+		{
+			capacity *= 2;
+			filenames = realloc(filenames, capacity * sizeof(char*));
+		}
+
+		filenames[count++] = my_strdup(entry->d_name);
 	}
-	
+	closedir(dir);
+
+	qsort(filenames, count, sizeof(char*), compare_names);
+
+	if (flags.l)
+		printf("total %ld\n", total_blocks / 2);
+
 	for (int i = 0; i < count; i++)
 	{
-		char full_path[1024];
+		char full_path[4096];
 		snprintf(full_path, sizeof(full_path), "%s/%s", path, filenames[i]);
-		
+
 		struct stat file_stat;
-		if (stat(full_path, &file_stat) != 0)
+		if (lstat(full_path, &file_stat) != 0)
 		{
-			file_stat.st_mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
+			perror(full_path);
+			free(filenames[i]);
+			continue;
 		}
 
 		if (flags.l)
-		{
 			print_file_info(full_path, filenames[i]);
-		}
 		else
 		{
 			print_colored_name(filenames[i], file_stat.st_mode);
 			printf("\n");
 		}
-		
+
 		free(filenames[i]);
 	}
 	free(filenames);
 }
 
-
 int main(int argc, char* argv[])
 {
 	Fl flags = {false, false};
-
 	int opt;
 	while ((opt = getopt(argc, argv, "al")) != -1)
 	{
 		switch (opt)
 		{
-			case 'a':
-				flags.a = true;
-				break;
-			case 'l':
-				flags.l = true;
-				break;
+			case 'a': flags.a = true; break;
+			case 'l': flags.l = true; break;
 		}
-
 	}
+
 	if (optind == argc)
 	{
-        	hpath(".", flags);
+		hpath(".", flags);
 	}
 	else
 	{
-        	for (int i = optind; i < argc; i++)
+		int multiple = (argc - optind > 1);
+		for (int i = optind; i < argc; i++)
 		{
+			if (multiple)
+				printf("%s:\n", argv[i]);
 			hpath(argv[i], flags);
+			if (i < argc - 1)
+				printf("\n");
 		}
-        }
+	}
 
-    return 0;
+	return 0;
 }
