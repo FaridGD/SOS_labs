@@ -1,12 +1,12 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -std=c11
 
-TARGETS = server client
+TARGETS = ser client
 
 all: $(TARGETS)
 
-server: server.c
-	$(CC) $(CFLAGS) server.c -o server
+server: ser.c
+	$(CC) $(CFLAGS) ser.c -o ser
 
 client: client.c
 	$(CC) $(CFLAGS) client.c -o client
