@@ -70,7 +70,7 @@ int main() {
         
         char full_message[MAX_BUFFER];
         int length = snprintf(full_message, MAX_BUFFER,
-                             "Привет от родительского процесса %d. Время отправки: %s",
+                             "Родительский процесс %d. Время отправки: %s",
                              getpid(), timestamp);
         
         if (length < 0) {
