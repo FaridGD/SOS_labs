@@ -1,65 +1,32 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <sys/mman.h>
-#include <string.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <sys/types.h>
 #include <time.h>
+#include <string.h>
 
-#define SHM_NAME "/time_shm"
-#define LOCK_FILE "/tmp/time_server.lock"
+#define SHM_KEY 0x1234
 
 typedef struct {
     char time_str[64];
     pid_t sender_pid;
 } shared_data;
 
-static int lock_instance(void) {
-    int fd = open(LOCK_FILE, O_RDWR | O_CREAT, 0644);
-    if (fd == -1) {
-        perror("open lock file");
-        return -1;
-    }
-
-    struct flock fl = {
-        .l_type = F_WRLCK,
-        .l_whence = SEEK_SET,
-        .l_start = 0,
-        .l_len = 0
-    };
-
-    if (fcntl(fd, F_SETLK, &fl) == -1) {
-        close(fd);
-        return -1;
-    }
-
-    return fd;
-}
-
 int main(void) {
-    int lock_fd = lock_instance();
-    if (lock_fd == -1) {
+    int shmid = shmget(SHM_KEY,
+                       sizeof(shared_data),
+                       IPC_CREAT | IPC_EXCL | 0666);
+
+    if (shmid == -1) {
         printf("Сервер уже запущен. Повторный запуск невозможен.\n");
         return 0;
     }
 
-    int shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666);
-    if (shm_fd == -1) {
-        perror("shm_open");
-        return 1;
-    }
-
-    ftruncate(shm_fd, sizeof(shared_data));
-
-    shared_data *data = mmap(NULL,
-                             sizeof(shared_data),
-                             PROT_READ | PROT_WRITE,
-                             MAP_SHARED,
-                             shm_fd,
-                             0);
-    if (data == MAP_FAILED) {
-        perror("mmap");
+    shared_data *data = (shared_data *)shmat(shmid, NULL, 0);
+    if (data == (void *)-1) {
+        perror("shmat");
         return 1;
     }
 
@@ -79,5 +46,7 @@ int main(void) {
         sleep(1);
     }
 
+    shmdt(data);
+    shmctl(shmid, IPC_RMID, NULL);
     return 0;
 }

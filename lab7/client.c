@@ -1,12 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <sys/mman.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <sys/types.h>
 #include <time.h>
 
-#define SHM_NAME "/time_shm"
+#define SHM_KEY 0x1234
 
 typedef struct {
     char time_str[64];
@@ -16,20 +16,15 @@ typedef struct {
 int main(void) {
     printf("Клиент запущен (PID: %d)\n", getpid());
 
-    int shm_fd = shm_open(SHM_NAME, O_RDONLY, 0666);
-    if (shm_fd == -1) {
-        perror("shm_open");
+    int shmid = shmget(SHM_KEY, sizeof(shared_data), 0666);
+    if (shmid == -1) {
+        perror("shmget");
         return 1;
     }
 
-    shared_data *data = mmap(NULL,
-                             sizeof(shared_data),
-                             PROT_READ,
-                             MAP_SHARED,
-                             shm_fd,
-                             0);
-    if (data == MAP_FAILED) {
-        perror("mmap");
+    shared_data *data = (shared_data *)shmat(shmid, NULL, SHM_RDONLY);
+    if (data == (void *)-1) {
+        perror("shmat");
         return 1;
     }
 
@@ -46,7 +41,7 @@ int main(void) {
         printf("\n--- Клиент ---\n");
         printf("PID клиента: %d\n", getpid());
         printf("Время клиента: %s\n", local_time);
-        printf("Получено из памяти:\n");
+        printf("Получено:\n");
         printf("  Время сервера: %s\n", data->time_str);
         printf("  PID сервера: %d\n", data->sender_pid);
         printf("---------------\n");
@@ -54,5 +49,6 @@ int main(void) {
         sleep(2);
     }
 
+    shmdt(data);
     return 0;
 }
