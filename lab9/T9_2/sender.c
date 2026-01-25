@@ -35,9 +35,21 @@ void get_time(char *buf, size_t size) {
 }
 
 int main() {
+    int old_shmid = shmget(SHM_KEY, 0, 0);
+    if (old_shmid != -1) {
+        shmctl(old_shmid, IPC_RMID, NULL);
+    }
+    
+    int old_semid = semget(SEM_KEY, 0, 0);
+    if (old_semid != -1) {
+        semctl(old_semid, 0, IPC_RMID);
+    }
+    
     int shmid = shmget(SHM_KEY, sizeof(struct shared_data), IPC_CREAT | 0666);
     struct shared_data *data = shmat(shmid, NULL, 0);
-
+    
+    strcpy(data->message, "Инициализация");
+    
     int semid = semget(SEM_KEY, 1, IPC_CREAT | 0666);
     semctl(semid, 0, SETVAL, 1);
 

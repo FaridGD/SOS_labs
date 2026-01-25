@@ -34,10 +34,17 @@ void get_time(char *buf, size_t size) {
 }
 
 int main() {
-    int shmid = shmget(SHM_KEY, sizeof(struct shared_data), 0666);
+    int shmid;
+    while ((shmid = shmget(SHM_KEY, 0, 0)) == -1) {
+        sleep(1);
+    }
+    
     struct shared_data *data = shmat(shmid, NULL, 0);
 
-    int semid = semget(SEM_KEY, 1, 0666);
+    int semid;
+    while ((semid = semget(SEM_KEY, 0, 0)) == -1) {
+        sleep(1);
+    }
 
     char time_str[16];
 

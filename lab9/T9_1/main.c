@@ -9,6 +9,7 @@
 #define BUF_SIZE 128
 
 char shared_buffer[BUF_SIZE];
+int counter = 0;
 sem_t sem;
 
 void print_time() {
@@ -21,23 +22,14 @@ void print_time() {
 }
 
 void* writer_thread(void* arg) {
-    int counter = 1;
-
     while (1) {
-        sem_wait(&sem);
-
+        snprintf(shared_buffer, BUF_SIZE, "Запись № %d", ++counter);
+        
         print_time();
-        printf("WRITER  | начинает запись...\n");
-
-        snprintf(shared_buffer, BUF_SIZE, "Запись № %d", counter++);
-        sleep(1);  // имитируем длительную запись
-
-        print_time();
-        printf("WRITER  | записал: \"%s\"\n\n", shared_buffer);
-
+        printf("WRITER  | записал: \"%s\"\n", shared_buffer);
+        
         sem_post(&sem);
-        fflush(stdout);
-
+        
         sleep(1);
     }
     return NULL;
@@ -48,18 +40,13 @@ void* reader_thread(void* arg) {
 
     while (1) {
         sem_wait(&sem);
-
+        
         print_time();
-        printf("READER  | TID=%lu | читает данные...\n",
-               (unsigned long)tid);
-
-        print_time();
-        printf("READER  | получено: \"%s\"\n\n", shared_buffer);
-
-        sem_post(&sem);
+        printf("READER  | TID=%lu | получено: \"%s\"\n\n",
+               (unsigned long)tid, shared_buffer);
+        
         fflush(stdout);
-
-        sleep(1);
+        
     }
     return NULL;
 }
@@ -67,7 +54,7 @@ void* reader_thread(void* arg) {
 int main() {
     pthread_t writer, reader;
 
-    sem_init(&sem, 0, 1);
+    sem_init(&sem, 0, 0);
 
     pthread_create(&writer, NULL, writer_thread, NULL);
     pthread_create(&reader, NULL, reader_thread, NULL);
